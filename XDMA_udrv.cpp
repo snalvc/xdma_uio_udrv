@@ -246,18 +246,39 @@ ostream &operator<<(ostream &os, const XDMA &xdma) {
   return os;
 }
 
-void XDMA::ctrl_reg_write(uint32_t xdma_reg_addr, uint32_t data) {
-  xdma_reg_addr &= 0x0000FFFF;
+uint32_t XDMA::ctrl_reg_write(const uint32_t xdma_reg_addr,
+                              const uint32_t data) {
   *((volatile uint32_t *)((uint64_t)this->bar_vaddr(
                               this->get_xdma_bar_index()) +
-                          xdma_reg_addr)) = data;
-}
-
-uint32_t XDMA::ctrl_reg_read(uint32_t xdma_reg_addr) {
-  xdma_reg_addr &= 0x0000FFFF;
+                          (xdma_reg_addr & 0x0000FFFF))) = data;
   return *((volatile uint32_t *)((uint64_t)this->bar_vaddr(
                                      this->get_xdma_bar_index()) +
-                                 xdma_reg_addr));
+                                 (xdma_reg_addr & 0x0000FFFF)));
+}
+
+uint32_t XDMA::ctrl_reg_write(const XDMA_ADDR_TARGET target,
+                              const uint32_t channel,
+                              const uint32_t byte_offset, const uint32_t data) {
+  uint32_t xdma_reg_addr = 0;
+  xdma_reg_addr |= (target << 12);
+  xdma_reg_addr |= ((channel & 0xF) << 8);
+  xdma_reg_addr |= (byte_offset & 0xF);
+  return this->ctrl_reg_write(xdma_reg_addr, data);
+}
+
+uint32_t XDMA::ctrl_reg_read(const uint32_t xdma_reg_addr) {
+  return *((volatile uint32_t *)((uint64_t)this->bar_vaddr(
+                                     this->get_xdma_bar_index()) +
+                                 (xdma_reg_addr & 0x0000FFFF)));
+}
+uint32_t XDMA::ctrl_reg_read(const XDMA_ADDR_TARGET target,
+                             const uint32_t channel,
+                             const uint32_t byte_offset) {
+  uint32_t xdma_reg_addr = 0;
+  xdma_reg_addr |= (target << 12);
+  xdma_reg_addr |= ((channel & 0xF) << 8);
+  xdma_reg_addr |= (byte_offset & 0xF);
+  return this->ctrl_reg_read(xdma_reg_addr);
 }
 
 } // namespace XDMA_udrv

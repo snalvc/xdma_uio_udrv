@@ -31,6 +31,17 @@ private:
   size_t len;
 };
 
+enum XDMA_ADDR_TARGET : int {
+  H2C_CHANNEL = 0,
+  C2H_CHANNEL,
+  IRQ_BLOCK,
+  CONFIG,
+  H2C_SGDMA,
+  C2H_SGDMA,
+  SGDMA_COMMON,
+  MSIX
+};
+
 class XDMA {
 public:
   XDMA() = delete;
@@ -38,8 +49,12 @@ public:
 
   static unique_ptr<XDMA> XDMA_factory(int32_t uio_index = -1);
 
-  void ctrl_reg_write(uint32_t xdma_reg_addr, uint32_t data);
-  uint32_t ctrl_reg_read(uint32_t xdma_reg_addr);
+  uint32_t ctrl_reg_write(const uint32_t xdma_reg_addr, const uint32_t data);
+  uint32_t ctrl_reg_write(const XDMA_ADDR_TARGET target, const uint32_t channel,
+                          const uint32_t byte_offset, const uint32_t data);
+  uint32_t ctrl_reg_read(const uint32_t xdma_reg_addr);
+  uint32_t ctrl_reg_read(const XDMA_ADDR_TARGET target, const uint32_t channel,
+                         const uint32_t byte_offset);
 
   int32_t get_num_of_bars() { return this->num_of_bars; }
   int32_t get_xdma_bar_index() { return this->xdma_bar_index; }
