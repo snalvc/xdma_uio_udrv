@@ -38,6 +38,9 @@ public:
 
   static unique_ptr<XDMA> XDMA_factory(int32_t uio_index = -1);
 
+  void ctrl_reg_write(uint32_t xdma_reg_addr, uint32_t data);
+  uint32_t ctrl_reg_read(uint32_t xdma_reg_addr);
+
   int32_t get_num_of_bars() { return this->num_of_bars; }
   int32_t get_xdma_bar_index() { return this->xdma_bar_index; }
   int get_uio_index() { return this->uio_index; }

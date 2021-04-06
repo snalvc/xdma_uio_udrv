@@ -246,4 +246,18 @@ ostream &operator<<(ostream &os, const XDMA &xdma) {
   return os;
 }
 
+void XDMA::ctrl_reg_write(uint32_t xdma_reg_addr, uint32_t data) {
+  xdma_reg_addr &= 0x0000FFFF;
+  *((volatile uint32_t *)((uint64_t)this->bar_vaddr(
+                              this->get_xdma_bar_index()) +
+                          xdma_reg_addr)) = data;
+}
+
+uint32_t XDMA::ctrl_reg_read(uint32_t xdma_reg_addr) {
+  xdma_reg_addr &= 0x0000FFFF;
+  return *((volatile uint32_t *)((uint64_t)this->bar_vaddr(
+                                     this->get_xdma_bar_index()) +
+                                 xdma_reg_addr));
+}
+
 } // namespace XDMA_udrv

@@ -34,5 +34,12 @@ int main(int argc, char const *argv[]) {
     cout << endl;
   }
 
+  uint32_t cbi = xdma->ctrl_reg_read(0x00003000);
+
+  cout << hex;
+  cout << "Core Identifier: 0x" << ((cbi & 0xFFF00000) >> 20) << endl;
+  cout << "Config Identifier: 0x" << ((cbi & 0x000F0000) >> 16) << endl;
+  cout << "Version: 0x" << (cbi & 0x0000000F) << endl;
+
   return 0;
 }
