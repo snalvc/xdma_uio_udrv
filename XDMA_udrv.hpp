@@ -45,6 +45,8 @@ public:
   size_t bar_len(int bar_index);
   friend ostream &operator<<(ostream &os, const XDMA &xdma);
 
+  static const int num_of_bars_max = PCIE_MAX_BARS;
+
 private:
   int uio_index;
   int32_t num_of_bars;

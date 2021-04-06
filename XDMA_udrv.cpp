@@ -20,10 +20,7 @@
 using namespace std;
 namespace fs = std::filesystem;
 
-namespace {
-// Use glibc functions but not std::filesystem
-vector<string> get_folder_entries(string path) {}
-} // namespace
+namespace {} // namespace
 
 namespace XDMA_udrv {
 
@@ -45,9 +42,10 @@ BAR_wrapper::BAR_wrapper(uint64_t start, size_t len, off64_t offset) {
 BAR_wrapper::~BAR_wrapper() {
   if (vaddr) {
     int rv;
-    cout << "unmap " << this->len << " bytes @" << this->vaddr << endl;
     rv = munmap(vaddr, len);
-    cout << "rv = " << rv << endl;
+    if (rv) {
+      perror("munmap()");
+    }
   }
 }
 
@@ -163,8 +161,6 @@ unique_ptr<XDMA> XDMA::XDMA_factory(int32_t uio_index) {
     } catch (exception &e) {
       cerr << e.what() << endl;
     }
-    cout << "Mapped " << pbar->getLen() << " bytes @" << pbar->getVAddr()
-         << endl;
     ret->bars[map_id] = move(pbar);
     num_of_bars++;
   }
@@ -224,6 +220,8 @@ unique_ptr<XDMA> XDMA::XDMA_factory(int32_t uio_index) {
 void *XDMA::bar_vaddr(int bar_index) {
   if (bar_index < 0 || bar_index > PCIE_MAX_BARS) {
     return nullptr;
+  } else if (!this->bars[bar_index]) {
+    return nullptr;
   } else {
     return this->bars[bar_index]->getVAddr();
   }
@@ -231,6 +229,8 @@ void *XDMA::bar_vaddr(int bar_index) {
 
 size_t XDMA::bar_len(int bar_index) {
   if (bar_index < 0 || bar_index > PCIE_MAX_BARS) {
+    return 0;
+  } else if (!this->bars[bar_index]) {
     return 0;
   } else {
     return this->bars[bar_index]->getLen();
