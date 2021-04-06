@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <dirent.h>
+#include <endian.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -250,10 +251,10 @@ uint32_t XDMA::ctrl_reg_write(const uint32_t xdma_reg_addr,
                               const uint32_t data) {
   *((volatile uint32_t *)((uint64_t)this->bar_vaddr(
                               this->get_xdma_bar_index()) +
-                          (xdma_reg_addr & 0x0000FFFF))) = data;
-  return *((volatile uint32_t *)((uint64_t)this->bar_vaddr(
-                                     this->get_xdma_bar_index()) +
-                                 (xdma_reg_addr & 0x0000FFFF)));
+                          (xdma_reg_addr & 0x0000FFFF))) = htole32(data);
+  return le32toh(*((volatile uint32_t *)((uint64_t)this->bar_vaddr(
+                                             this->get_xdma_bar_index()) +
+                                         (xdma_reg_addr & 0x0000FFFF))));
 }
 
 uint32_t XDMA::ctrl_reg_write(const XDMA_ADDR_TARGET target,
@@ -267,9 +268,9 @@ uint32_t XDMA::ctrl_reg_write(const XDMA_ADDR_TARGET target,
 }
 
 uint32_t XDMA::ctrl_reg_read(const uint32_t xdma_reg_addr) {
-  return *((volatile uint32_t *)((uint64_t)this->bar_vaddr(
-                                     this->get_xdma_bar_index()) +
-                                 (xdma_reg_addr & 0x0000FFFF)));
+  return le32toh(*((volatile uint32_t *)((uint64_t)this->bar_vaddr(
+                                             this->get_xdma_bar_index()) +
+                                         (xdma_reg_addr & 0x0000FFFF))));
 }
 uint32_t XDMA::ctrl_reg_read(const XDMA_ADDR_TARGET target,
                              const uint32_t channel,
