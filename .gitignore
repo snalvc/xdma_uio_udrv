@@ -1,0 +1,7 @@
+.vscode
+*.o
+st_huge_pg
+test
+test.cpp
+simple
+simple.c
