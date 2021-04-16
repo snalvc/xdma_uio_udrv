@@ -16,6 +16,24 @@
 using namespace std;
 
 namespace XDMA_udrv {
+
+enum HugePageSizeType { HUGE_1GiB, HUGE_2MiB };
+
+class HugePageWrapper {
+public:
+  HugePageWrapper() = delete;
+  HugePageWrapper(enum HugePageSizeType);
+  ~HugePageWrapper();
+
+  void *getVAddr() { return this->virt_addr; }
+  size_t getLen() { return this->length; }
+
+private:
+  size_t length;
+  uint64_t phy_addr;
+  void *virt_addr;
+};
+
 class BAR_wrapper {
 public:
   BAR_wrapper() = delete;

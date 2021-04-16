@@ -25,6 +25,28 @@ namespace {} // namespace
 
 namespace XDMA_udrv {
 
+HugePageWrapper::HugePageWrapper(HugePageSizeType size) {
+  int flag = MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB;
+  if (size == HUGE_1GiB) {
+    flag |= (30 << MAP_HUGE_SHIFT);
+    this->length = 1 << 30;
+  } else {
+    flag |= (21 << MAP_HUGE_SHIFT);
+    this->length = 1 << 21;
+  }
+  this->virt_addr =
+      mmap((void *)0x0UL, this->length, PROT_READ | PROT_WRITE, flag, -1, 0);
+  if (this->virt_addr == (void *)-1) {
+    throw system_error(error_code(errno, generic_category()), "mmap()");
+  }
+}
+
+HugePageWrapper::~HugePageWrapper() {
+  if (this->virt_addr != (void *)-1) {
+    munmap(this->virt_addr, this->length);
+  }
+}
+
 BAR_wrapper::BAR_wrapper(uint64_t start, size_t len, off64_t offset) {
   int rv, mem_fd;
   mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
