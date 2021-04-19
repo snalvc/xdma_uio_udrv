@@ -39,6 +39,35 @@ HugePageWrapper::HugePageWrapper(HugePageSizeType size) {
   if (this->virt_addr == (void *)-1) {
     throw system_error(error_code(errno, generic_category()), "mmap()");
   }
+  // Harmless write to enable allocated hugepage
+  uint32_t temp;
+  temp = *((uint32_t *)this->virt_addr);
+  *((uint32_t *)this->virt_addr) = 87;
+  *((uint32_t *)this->virt_addr) = temp;
+  // Lookup physical address
+  off64_t addr_off;
+  int fd_pgm, rv;
+  uint64_t pfn;
+  fd_pgm = open("/proc/self/pagemap", O_RDONLY);
+  if (fd_pgm < 0) {
+    throw system_error(error_code(errno, generic_category()), "open() pagemap");
+  }
+  addr_off = lseek64(
+      fd_pgm, (uintptr_t)this->virt_addr / getpagesize() * sizeof(uintptr_t),
+      SEEK_SET);
+  if (addr_off < 0) {
+    throw system_error(error_code(errno, generic_category()), "lseek64()");
+  }
+  rv = read(fd_pgm, &pfn, sizeof(uintptr_t));
+  if (rv <= 0) {
+    throw system_error(error_code(errno, generic_category()), "read() pagemap");
+  }
+  this->phy_addr = pfn * getpagesize();
+  close(fd_pgm);
+  if (this->phy_addr == 0) {
+    throw system_error(error_code(EACCES, generic_category()),
+                       "get physical address");
+  }
 }
 
 HugePageWrapper::~HugePageWrapper() {

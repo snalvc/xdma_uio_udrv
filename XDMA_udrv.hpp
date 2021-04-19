@@ -26,6 +26,7 @@ public:
   ~HugePageWrapper();
 
   void *getVAddr() { return this->virt_addr; }
+  uint64_t getPAddr() { return this->phy_addr; }
   size_t getLen() { return this->length; }
 
 private:
