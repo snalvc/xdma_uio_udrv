@@ -34,6 +34,7 @@ HugePageWrapper::HugePageWrapper(HugePageSizeType size) {
     flag |= (21 << MAP_HUGE_SHIFT);
     this->length = 1 << 21;
   }
+  this->size_type = size;
   this->virt_addr =
       mmap((void *)0x0UL, this->length, PROT_READ | PROT_WRITE, flag, -1, 0);
   if (this->virt_addr == (void *)-1) {

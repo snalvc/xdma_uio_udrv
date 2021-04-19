@@ -18,6 +18,8 @@ using namespace std;
 namespace XDMA_udrv {
 
 enum HugePageSizeType { HUGE_1GiB, HUGE_2MiB };
+// XDMA allows max size of (1 << 28) - 1 bytes
+const uint32_t MAX_MEM_CHUNK_SIZE = 1UL << 27;
 
 class HugePageWrapper {
 public:
@@ -28,11 +30,13 @@ public:
   void *getVAddr() { return this->virt_addr; }
   uint64_t getPAddr() { return this->phy_addr; }
   size_t getLen() { return this->length; }
+  HugePageSizeType getSizeType() { return this->size_type; }
 
 private:
   size_t length;
   uint64_t phy_addr;
   void *virt_addr;
+  HugePageSizeType size_type;
 };
 
 class BAR_wrapper {
