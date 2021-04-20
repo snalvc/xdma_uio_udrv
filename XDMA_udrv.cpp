@@ -315,7 +315,7 @@ uint32_t XDMA::ctrl_reg_write(const XDMA_ADDR_TARGET target,
   uint32_t xdma_reg_addr = 0;
   xdma_reg_addr |= (target << 12);
   xdma_reg_addr |= ((channel & 0xF) << 8);
-  xdma_reg_addr |= (byte_offset & 0xF);
+  xdma_reg_addr |= (byte_offset & 0xFF);
   return this->ctrl_reg_write(xdma_reg_addr, data);
 }
 
@@ -330,8 +330,81 @@ uint32_t XDMA::ctrl_reg_read(const XDMA_ADDR_TARGET target,
   uint32_t xdma_reg_addr = 0;
   xdma_reg_addr |= (target << 12);
   xdma_reg_addr |= ((channel & 0xF) << 8);
-  xdma_reg_addr |= (byte_offset & 0xF);
+  xdma_reg_addr |= (byte_offset & 0xFF);
   return this->ctrl_reg_read(xdma_reg_addr);
+}
+
+/*
+Not sure if this is a good way.
+Encapsulate descriptor and huge page buffer related resources and methods in
+this class.
+data_buf: 1 GiB huge page for data
+desc_buf: 2 MiB huge page for descriptors and descriptor writeback. Lower half
+(1 MiB) is for descriptors and upper half (1 MiB) is for descriptor writeback.
+*/
+XHugeBuffer::XHugeBuffer()
+    : data_buf(HugePageSizeType::HUGE_1GiB),
+      desc_buf(HugePageSizeType::HUGE_2MiB) {
+  memset((void *)this->desc_buf.getVAddr(), 0, this->desc_buf.getLen());
+}
+
+// Preliminary. Chunk size should be configurable?
+void XHugeBuffer::initialize(size_t xfer_size) {
+  if (xfer_size > this->data_buf.getLen()) {
+    throw std::range_error("Request size over range");
+  }
+  // Clear descriptor buffer
+  memset((void *)this->desc_buf.getVAddr(), 0, this->desc_buf.getLen());
+
+  uint32_t n_desc =
+      xfer_size / MEM_CHUNK_SIZE + ((xfer_size % MEM_CHUNK_SIZE) ? (1) : (0));
+  uint32_t last_block_idx = xfer_size / MEM_CHUNK_SIZE - 1;
+
+  // Store # of desc for later use
+  this->n_desc = n_desc;
+
+  // Fill in descriptors
+  // !!! Skipped max adjacent descriptors constraint (16) !!!
+  // Since 1 GiB buffer and 128 MiB chunk is used here, there will be no more
+  // than 8 descriptors
+  struct xdma_desc *pdesc = (struct xdma_desc *)this->desc_buf.getVAddr();
+  // Magic, next_adj and length
+  // !!! Endianess is not handled since we're on x86 !!!
+  for (int i = 0, nxt_adj = n_desc - 2; i < n_desc; i++, nxt_adj--) {
+    nxt_adj = (nxt_adj < 0) ? 0 : nxt_adj;
+    pdesc[i].control |= __MASK_SHIFT__(16, 16, XDMA_DESC_MAGIC);
+    pdesc[i].control |= __MASK_SHIFT__(8, 6, nxt_adj);
+    pdesc[i].bytes = MEM_CHUNK_SIZE;
+  }
+  // Set stop and completed flag at the last descriptor
+  pdesc[last_block_idx].control |= __MASK_SHIFT__(0, 1, 1);
+  pdesc[last_block_idx].control |= __MASK_SHIFT__(1, 1, 1);
+  // Chain descriptors
+  for (int i = 0; i < n_desc - 1; i++) {
+    uint64_t addr = this->desc_buf.getPAddr() + (i + 1) * sizeof(xdma_desc);
+    pdesc[i].next_lo = addr;
+    pdesc[i].next_hi = addr >> 32;
+  }
+  // Set buffer address and WB address
+  for (int i = 0; i < n_desc; i++) {
+    uint64_t buff_addr = this->data_buf.getPAddr() + i * MEM_CHUNK_SIZE;
+    uint64_t wb_addr = this->desc_buf.getPAddr() + this->desc_buf.getLen() / 2 +
+                       i * sizeof(c2h_wb);
+    pdesc[i].dst_addr_lo = buff_addr;
+    pdesc[i].dst_addr_hi = buff_addr >> 32;
+    pdesc[i].src_addr_lo = wb_addr;
+    pdesc[i].src_addr_hi = wb_addr >> 32;
+  }
+}
+
+uint64_t XHugeBuffer::getXferedSize() {
+  c2h_wb *pwb = (c2h_wb *)((uintptr_t)this->desc_buf.getVAddr() +
+                           this->desc_buf.getLen() / 2);
+  uint64_t xfered_size = 0;
+  for (int i = 0; i < this->n_desc; i++) {
+    xfered_size += pwb[i].length;
+  }
+  return xfered_size;
 }
 
 } // namespace XDMA_udrv

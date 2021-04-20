@@ -18,8 +18,16 @@ using namespace std;
 namespace XDMA_udrv {
 
 enum HugePageSizeType { HUGE_1GiB, HUGE_2MiB };
-// XDMA allows max size of (1 << 28) - 1 bytes
-const uint32_t MAX_MEM_CHUNK_SIZE = 1UL << 27;
+// XDMA allows max size of (1 << 28) - 1 bytes, we choose 1 << 27 chunk
+const uint32_t MEM_CHUNK_SIZE = 1UL << 27;
+
+#define __GET_MASK__(_len) ((1 << _len) - 1)
+#define __GET_SHIFTED_MASK__(_offset, _len) (__GET_MASK__(_len) << _offset)
+#define __MASK_SHIFT__(_offset, _len, _value)                                  \
+  ((_value & __GET_MASK__(_len)) << _offset)
+
+// XDMA register constants
+#define XDMA_DESC_MAGIC 0xAD4B
 
 class HugePageWrapper {
 public:
@@ -93,6 +101,44 @@ private:
   int32_t num_of_bars;
   int32_t xdma_bar_index;
   array<unique_ptr<BAR_wrapper>, PCIE_MAX_BARS> bars;
+};
+
+struct xdma_desc {
+  uint32_t control;
+  uint32_t bytes;       /* transfer length in bytes */
+  uint32_t src_addr_lo; /* source address (low 32-bit) */
+  uint32_t src_addr_hi; /* source address (high 32-bit) */
+  uint32_t dst_addr_lo; /* destination address (low 32-bit) */
+  uint32_t dst_addr_hi; /* destination address (high 32-bit) */
+  /*
+   * next descriptor in the single-linked list of descriptors;
+   * this is the PCIe (bus) address of the next descriptor in the
+   * root complex memory
+   */
+  uint32_t next_lo; /* next desc address (low 32-bit) */
+  uint32_t next_hi; /* next desc address (high 32-bit) */
+} __attribute__((packed));
+
+struct c2h_wb {
+  uint32_t status;
+  uint32_t length;
+} __attribute__((packed));
+
+class XHugeBuffer {
+public:
+  XHugeBuffer();
+
+  void initialize(size_t xfer_size);
+  uint64_t getXferedSize();
+  void *getDataBufferVaddr() { return this->data_buf.getVAddr(); }
+  uint64_t getDataBufferPaddr() { return this->data_buf.getPAddr(); }
+  void *getDescBufferVaddr() { return this->desc_buf.getVAddr(); }
+  uint64_t getDescBufferPaddr() { return this->desc_buf.getPAddr(); }
+
+private:
+  HugePageWrapper data_buf;
+  HugePageWrapper desc_buf;
+  uint32_t n_desc;
 };
 
 } // namespace XDMA_udrv
