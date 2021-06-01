@@ -62,7 +62,7 @@ int main(int argc, char const *argv[]) {
   struct timespec tstart, tend, tdiff;
 
   // Start a 1 GiB transfer
-  uint32_t xfer_size = (1 << 29);
+  uint32_t xfer_size = (1 << 30);
   buffer.initialize(xfer_size);
 
   // dump descriptors for check
@@ -92,10 +92,19 @@ int main(int argc, char const *argv[]) {
   clock_gettime(CLOCK_MONOTONIC, &tstart);
   xdma->ctrl_reg_write(XDMA_udrv::XDMA_ADDR_TARGET::C2H_CHANNEL, 0, 0x08, 1);
   // Poll the descriptor complete
-  while (
-      !(xdma->ctrl_reg_read(XDMA_udrv::XDMA_ADDR_TARGET::C2H_CHANNEL, 0, 0x40) &
-        (1 << 2)))
-    ;
+  while (1) {
+    uint32_t ret =
+        xdma->ctrl_reg_read(XDMA_udrv::XDMA_ADDR_TARGET::C2H_CHANNEL, 0, 0x40);
+    if (ret == 0xFFFFFFFF)
+      continue;
+    else if (ret & (1 << 2))
+      break;
+    else
+      continue;
+  }
+  printf(
+      "C2H channel 0 status: 0x%08X\n",
+      xdma->ctrl_reg_read(XDMA_udrv::XDMA_ADDR_TARGET::C2H_CHANNEL, 0, 0x40));
   // record end time
   clock_gettime(CLOCK_MONOTONIC, &tend);
 
