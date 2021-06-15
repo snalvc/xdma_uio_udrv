@@ -78,7 +78,7 @@ HugePageWrapper::~HugePageWrapper() {
 }
 
 BAR_wrapper::BAR_wrapper(uint64_t start, size_t len, off64_t offset) {
-  int rv, mem_fd;
+  int mem_fd;
   mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
   if (mem_fd == -1) {
     throw system_error(error_code(errno, generic_category()), "open()");
@@ -370,7 +370,7 @@ void XHugeBuffer::initialize(size_t xfer_size) {
   struct xdma_desc *pdesc = (struct xdma_desc *)this->desc_buf.getVAddr();
   // Magic, next_adj and length
   // !!! Endianess is not handled since we're on x86 !!!
-  for (int i = 0, nxt_adj = n_desc - 2; i < n_desc; i++, nxt_adj--) {
+  for (uint32_t i = 0, nxt_adj = n_desc - 2; i < n_desc; i++, nxt_adj--) {
     nxt_adj = (nxt_adj < 0) ? 0 : nxt_adj;
     pdesc[i].control |= __MASK_SHIFT__(16, 16, XDMA_DESC_MAGIC);
     pdesc[i].control |= __MASK_SHIFT__(8, 6, nxt_adj);
@@ -380,13 +380,13 @@ void XHugeBuffer::initialize(size_t xfer_size) {
   pdesc[last_block_idx].control |= __MASK_SHIFT__(0, 1, 1);
   pdesc[last_block_idx].control |= __MASK_SHIFT__(1, 1, 1);
   // Chain descriptors
-  for (int i = 0; i < n_desc - 1; i++) {
+  for (uint32_t i = 0; i < n_desc - 1; i++) {
     uint64_t addr = this->desc_buf.getPAddr() + (i + 1) * sizeof(xdma_desc);
     pdesc[i].next_lo = addr;
     pdesc[i].next_hi = addr >> 32;
   }
   // Set buffer address and WB address
-  for (int i = 0; i < n_desc; i++) {
+  for (uint32_t i = 0; i < n_desc; i++) {
     uint64_t buff_addr = this->data_buf.getPAddr() + i * MEM_CHUNK_SIZE;
     uint64_t wb_addr = this->desc_buf.getPAddr() + this->desc_buf.getLen() / 2 +
                        i * sizeof(c2h_wb);
@@ -401,7 +401,111 @@ uint64_t XHugeBuffer::getXferedSize() {
   c2h_wb *pwb = (c2h_wb *)((uintptr_t)this->desc_buf.getVAddr() +
                            this->desc_buf.getLen() / 2);
   uint64_t xfered_size = 0;
-  for (int i = 0; i < this->n_desc; i++) {
+  for (uint32_t i = 0; i < this->n_desc; i++) {
+    xfered_size += pwb[i].length;
+  }
+  return xfered_size;
+}
+
+XSGBuffer::XSGBuffer(const uint64_t size)
+    : desc_wb_buf(HugePageSizeType::HUGE_2MiB) {
+  uint32_t nr_1gibp;
+
+  this->size = size;
+
+  // Currently descriptor buffer size is 1MiB (share 2 MiB hugepage with C2H WB)
+  // 1 MiB / sizeof(desc) = 32768
+  // Max size per descriptor = 128 MiB
+  // => 4096 GiB buffer if 128MiB chunk is used
+  // Manually set a 3 GiB upper limit for current use
+  if (size > XSGB_MAX_SIZE) {
+    throw std::runtime_error("Can't receive more than 3 GiB (soft constraint)");
+  }
+
+  nr_1gibp = size / (1UL << 30) + (size % (1UL << 30) ? 1 : 0);
+  for (uint32_t i = 0; i < nr_1gibp; i++) {
+    this->data_buf.push_back(
+        make_unique<HugePageWrapper>(HugePageSizeType::HUGE_1GiB));
+  }
+}
+
+void XSGBuffer::initialize() {
+  uint32_t nr_desc;
+
+  // # of chunks = # of descriptors
+  nr_desc = this->size / MEM_CHUNK_SIZE + (this->size % MEM_CHUNK_SIZE ? 1 : 0);
+  this->nr_desc = nr_desc;
+
+  struct xdma_desc *pdesc = (struct xdma_desc *)this->desc_wb_buf.getVAddr();
+
+  // Magic and length
+  // !!! Endianess is not handled since we're on x86 !!!
+  for (uint32_t i = 0; i < nr_desc; i++) {
+    pdesc[i].control |= __MASK_SHIFT__(16, 16, XDMA_DESC_MAGIC);
+    pdesc[i].bytes = MEM_CHUNK_SIZE;
+  }
+
+  // nxt_adj
+  // use 8 desc/block <=> 1GiB/block
+  // full block
+  for (uint32_t full_1gib = 0; full_1gib < nr_desc / 8; full_1gib++) {
+    for (int i = 0; i < 8; i++) {
+      pdesc[8 * full_1gib + i].control |=
+          __MASK_SHIFT__(8, 6, ((6 - i) < 0) ? 0 : (6 - i));
+    }
+  }
+  // residual
+  if (nr_desc % 8) {
+    for (int i = 0; i < nr_desc % 8; i++) {
+      pdesc[8 * (nr_desc / 8) + i].control |=
+          __MASK_SHIFT__(8, 6,
+                         (((int32_t)nr_desc % 8 - 2 - i) < 0)
+                             ? 0
+                             : ((int32_t)nr_desc % 8 - 2 - i));
+    }
+  }
+
+  // Set stop and completed flag at the last descriptor
+  pdesc[nr_desc - 1].control |= __MASK_SHIFT__(0, 1, 1); // Stop
+  pdesc[nr_desc - 1].control |= __MASK_SHIFT__(1, 1, 1); // Completed
+
+  // Chain descriptors
+  for (uint32_t i = 0; i < nr_desc - 1; i++) {
+    uint64_t addr = this->desc_wb_buf.getPAddr() + (i + 1) * sizeof(xdma_desc);
+    pdesc[i].next_lo = addr;
+    pdesc[i].next_hi = addr >> 32;
+  }
+
+  // Set buffer address and WB address
+  for (uint32_t i = 0; i < nr_desc; i++) {
+    uint64_t buff_addr =
+        this->data_buf[i / 8]->getPAddr() + (i % 8) * MEM_CHUNK_SIZE;
+    uint64_t wb_addr = this->desc_wb_buf.getPAddr() +
+                       this->desc_wb_buf.getLen() / 2 + i * sizeof(c2h_wb);
+    pdesc[i].dst_addr_lo = buff_addr;
+    pdesc[i].dst_addr_hi = buff_addr >> 32;
+    pdesc[i].src_addr_lo = wb_addr;
+    pdesc[i].src_addr_hi = wb_addr >> 32;
+  }
+}
+
+void *XSGBuffer::getDataBufferVaddr(uint32_t index) {
+  if (index > this->data_buf.size())
+    return (void *)(0);
+  return this->data_buf[index]->getVAddr();
+}
+
+uint64_t XSGBuffer::getDataBufferPaddr(uint32_t index) {
+  if (index > this->data_buf.size())
+    return 0;
+  return this->data_buf[index]->getPAddr();
+}
+
+uint64_t XSGBuffer::getXferedSize() {
+  c2h_wb *pwb = (c2h_wb *)((uintptr_t)this->desc_wb_buf.getVAddr() +
+                           this->desc_wb_buf.getLen() / 2);
+  uint64_t xfered_size = 0;
+  for (uint32_t i = 0; i < this->nr_desc; i++) {
     xfered_size += pwb[i].length;
   }
   return xfered_size;

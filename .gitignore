@@ -5,3 +5,5 @@ test
 test.cpp
 simple
 simple.c
+pcicat
+*.bin

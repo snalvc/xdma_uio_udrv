@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <vector>
 
 #define PCIE_MAX_BARS 6
 
@@ -20,6 +21,8 @@ namespace XDMA_udrv {
 enum HugePageSizeType { HUGE_1GiB, HUGE_2MiB };
 // XDMA allows max size of (1 << 28) - 1 bytes, we choose 1 << 27 chunk
 const uint32_t MEM_CHUNK_SIZE = 1UL << 27;
+// Max 3GiB
+const uint64_t XSGB_MAX_SIZE = 3 * (1UL << 30);
 
 #define __GET_MASK__(_len) ((1 << _len) - 1)
 #define __GET_SHIFTED_MASK__(_offset, _len) (__GET_MASK__(_len) << _offset)
@@ -139,6 +142,25 @@ private:
   HugePageWrapper data_buf;
   HugePageWrapper desc_buf;
   uint32_t n_desc;
+};
+
+// XDMA SG buffer base on huge page
+class XSGBuffer {
+public:
+  XSGBuffer(const uint64_t size);
+  void initialize();
+  void *getDescWBVaddr() { return this->desc_wb_buf.getVAddr(); }
+  uint64_t getDescWBPaddr() { return this->desc_wb_buf.getPAddr(); }
+  uint32_t getNrPg() { return this->data_buf.size(); }
+  void *getDataBufferVaddr(uint32_t index);
+  uint64_t getDataBufferPaddr(uint32_t index);
+  uint64_t getXferedSize();
+
+private:
+  uint64_t size;
+  uint32_t nr_desc;
+  HugePageWrapper desc_wb_buf;
+  std::vector<unique_ptr<HugePageWrapper>> data_buf;
 };
 
 } // namespace XDMA_udrv
