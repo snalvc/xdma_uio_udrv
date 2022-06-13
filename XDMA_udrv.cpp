@@ -429,6 +429,23 @@ XSGBuffer::XSGBuffer(const uint64_t size)
   }
 }
 
+XSGBuffer::XSGBuffer(const vector<uint64_t> &size)
+    : desc_wb_buf(HugePageSizeType::HUGE_2MiB) {
+  int n_blocks = 0, nr_1gibp;
+  for (auto s : size) {
+    n_blocks += s / MEM_CHUNK_SIZE + ((s % MEM_CHUNK_SIZE) ? 1 : 0);
+    this->n_desc.push_back(s / MEM_CHUNK_SIZE + ((s % MEM_CHUNK_SIZE) ? 1 : 0));
+  }
+  if (n_blocks > XSGB_MAX_N_CHUNK) {
+    throw std::runtime_error("Ran out of buffer chunks");
+  }
+  nr_1gibp = n_blocks / 8 + ((n_blocks % 8) ? 1 : 0);
+  for (uint32_t i = 0; i < nr_1gibp; i++) {
+    this->data_buf.push_back(
+        make_unique<HugePageWrapper>(HugePageSizeType::HUGE_1GiB));
+  }
+}
+
 void XSGBuffer::initialize() {
   uint32_t nr_desc;
 

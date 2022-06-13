@@ -23,6 +23,8 @@ enum HugePageSizeType { HUGE_1GiB, HUGE_2MiB };
 const uint32_t MEM_CHUNK_SIZE = 1UL << 27;
 // Max 3GiB
 const uint64_t XSGB_MAX_SIZE = 3 * (1UL << 30);
+// Max Chunks
+const uint64_t XSGB_MAX_N_CHUNK = XSGB_MAX_SIZE / MEM_CHUNK_SIZE;
 
 #define __GET_MASK__(_len) ((1 << _len) - 1)
 #define __GET_SHIFTED_MASK__(_offset, _len) (__GET_MASK__(_len) << _offset)
@@ -148,6 +150,7 @@ private:
 class XSGBuffer {
 public:
   XSGBuffer(const uint64_t size);
+  XSGBuffer(const vector<uint64_t> &size);
   void initialize();
   void *getDescWBVaddr() { return this->desc_wb_buf.getVAddr(); }
   uint64_t getDescWBPaddr() { return this->desc_wb_buf.getPAddr(); }
@@ -161,6 +164,7 @@ private:
   uint32_t nr_desc;
   HugePageWrapper desc_wb_buf;
   std::vector<unique_ptr<HugePageWrapper>> data_buf;
+  vector<int32_t> n_desc;
 };
 
 } // namespace XDMA_udrv

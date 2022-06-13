@@ -34,7 +34,7 @@ struct timespec timediff(struct timespec start, struct timespec end);
 int main(int argc, char const *argv[]) {
   po::options_description desc("Allowed options");
   desc.add_options()("help,h", "print usage message");
-  desc.add_options()("size,s", po::value<string>()->default_value("0x40000000"),
+  desc.add_options()("size,s", po::value<vector<string>>()->multitoken(),
                      "Transfer size in bytes");
   desc.add_options()("fname,f", po::value<string>()->default_value("dump.bin"),
                      "Name of dump file");
@@ -55,7 +55,22 @@ int main(int argc, char const *argv[]) {
     cerr << "Please specify name of dump file" << endl;
     exit(1);
   }
-  uint64_t xfer_size = strtoull(vm["size"].as<string>().c_str(), 0, 0);
+  vector<uint64_t> size_v;
+  for (auto n : vm["size"].as<vector<string>>()) {
+    auto size = strtoull(n.c_str(), 0, 0);
+    size_v.push_back(size);
+  }
+  uint64_t real_xfer_size = 0;
+  vector<uint32_t> chunks_v;
+  for (auto n : size_v) {
+    chunks_v.push_back(n / XDMA_udrv::MEM_CHUNK_SIZE +
+                       ((n % XDMA_udrv::MEM_CHUNK_SIZE) ? 1 : 0));
+    real_xfer_size += n;
+  }
+  uint64_t xfer_size = 0;
+  for (auto n : chunks_v) {
+    xfer_size += n * XDMA_udrv::MEM_CHUNK_SIZE;
+  }
 
   unique_ptr<XDMA_udrv::XDMA> xdma = XDMA_udrv::XDMA::XDMA_factory();
   XDMA_udrv::XSGBuffer buffer(xfer_size);
@@ -165,48 +180,84 @@ int main(int argc, char const *argv[]) {
   // if (correct)
   //   cout << "Done verifying data" << endl;
 
-  cout << "Requested " << xfer_size << ", Received " << transfer_byte_cnt
+  cout << "Requested " << real_xfer_size << ", Received " << transfer_byte_cnt
        << endl;
 
-  // Write to file
-  int fd;
-  fd = open(vm["fname"].as<string>().c_str(), O_WRONLY | O_CREAT | O_TRUNC,
-            S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
-  if (fd == -1) {
-    perror("open()");
-    exit(1);
+  int chunk_idx = 0;
+  regex e("(.*)(\\..*)");
+  smatch m;
+  string prefix(""), postfix("");
+  cout << vm["fname"].as<string>() << endl;
+  if (regex_search(vm["fname"].as<string>(), m, e)) {
+    prefix = m[1].str();
+    postfix = m[2].str();
+  } else {
+    prefix = vm["fname"].as<string>();
   }
-  // Full 1GiB
-  for (int i = 0; i < transfer_byte_cnt / (1 << 30); i++) {
-    ssize_t xfered_cnt = write(fd, buffer.getDataBufferVaddr(i), 1UL << 30);
-    if (xfered_cnt == -1) {
-      perror("write()");
-      cerr << "Aborted" << endl;
-      exit(1);
-    } else if (xfered_cnt != (1 << 30)) {
-      cerr << "Wrote " << xfered_cnt << " byte(s) < " << (1UL << 30) << endl;
-      cerr << "Aborted" << endl;
+  for (int i = 0; i < chunks_v.size(); i++) {
+    uint32_t transaction_chunks = chunks_v[i];
+    string fname = prefix + "." + to_string(i) + postfix;
+    int fd;
+    fd = open(fname.c_str(), O_WRONLY | O_CREAT | O_TRUNC,
+              S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+    if (fd == -1) {
+      perror("open()");
       exit(1);
     }
-  }
-  // Residual
-  if (transfer_byte_cnt % (1UL << 30)) {
-    ssize_t xfered_cnt =
-        write(fd, buffer.getDataBufferVaddr(transfer_byte_cnt / (1L << 30)),
-              transfer_byte_cnt % (1UL << 30));
-    if (xfered_cnt == -1) {
-      perror("write()");
-      cerr << "Aborted" << endl;
-      exit(1);
-    } else if (xfered_cnt != transfer_byte_cnt % (1L << 30)) {
-      cerr << "Wrote " << xfered_cnt << " byte(s) < "
-           << transfer_byte_cnt % (1L << 30) << endl;
-      cerr << "Aborted" << endl;
-      exit(1);
-    }
-  }
 
-  close(fd);
+    for (int j = 0; j < transaction_chunks; j++, chunk_idx++) {
+      int pg_idx = chunk_idx / 8;
+      int inner_chunk_idx = chunk_idx % 8;
+      XDMA_udrv::c2h_wb *pwb = (XDMA_udrv::c2h_wb *)(buffer.getDescWBVaddr() + (1 << 20));
+      void *start = buffer.getDataBufferVaddr(pg_idx) +
+                    XDMA_udrv::MEM_CHUNK_SIZE * inner_chunk_idx;
+      if (write(fd, start, pwb[chunk_idx].length) < 0) {
+        perror("write()");
+        exit(1);
+      }
+    }
+
+    close(fd);
+  }
+  // Write to file
+  // int fd;
+  // fd = open(vm["fname"].as<string>().c_str(), O_WRONLY | O_CREAT | O_TRUNC,
+  //           S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+  // if (fd == -1) {
+  //   perror("open()");
+  //   exit(1);
+  // }
+  // // Full 1GiB
+  // for (int i = 0; i < transfer_byte_cnt / (1 << 30); i++) {
+  //   ssize_t xfered_cnt = write(fd, buffer.getDataBufferVaddr(i), 1UL << 30);
+  //   if (xfered_cnt == -1) {
+  //     perror("write()");
+  //     cerr << "Aborted" << endl;
+  //     exit(1);
+  //   } else if (xfered_cnt != (1 << 30)) {
+  //     cerr << "Wrote " << xfered_cnt << " byte(s) < " << (1UL << 30) << endl;
+  //     cerr << "Aborted" << endl;
+  //     exit(1);
+  //   }
+  // }
+  // // Residual
+  // if (transfer_byte_cnt % (1UL << 30)) {
+  //   ssize_t xfered_cnt =
+  //       write(fd, buffer.getDataBufferVaddr(transfer_byte_cnt / (1L << 30)),
+  //             transfer_byte_cnt % (1UL << 30));
+  //   if (xfered_cnt == -1) {
+  //     perror("write()");
+  //     cerr << "Aborted" << endl;
+  //     exit(1);
+  //   } else if (xfered_cnt != transfer_byte_cnt % (1L << 30)) {
+  //     cerr << "Wrote " << xfered_cnt << " byte(s) < "
+  //          << transfer_byte_cnt % (1L << 30) << endl;
+  //     cerr << "Aborted" << endl;
+  //     exit(1);
+  //   }
+  // }
+
+  // close(fd);
 }
 
 // Software implementation of 128-bit LFSR (bit 127, 125, 100, 98)
